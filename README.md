@@ -1,1 +1,1 @@
-# lab2-distri
+# Lab2-Sistemas-distribuidos
