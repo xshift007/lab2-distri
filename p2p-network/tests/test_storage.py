@@ -1,35 +1,7 @@
-"""Unit tests for the distributed storage and search module.
-
-These tests exercise the basic behaviours of the storage module
-implemented in ``src/storage.py``.  They verify that keys are
-assigned to the correct node based on a consistent hashing scheme,
-that replication stores values on multiple successors, that values
-can be retrieved via direct lookup on the ring and via a flooding
-search, and that the heartbeat mechanism detects failed neighbours.
-
-The tests are intentionally deterministic: rather than relying on the
-system clock, they provide fixed timestamps when exercising the
-heartbeat API.  This makes the assertions predictable and ensures
-that test failures are meaningful.
-"""
-
-from __future__ import annotations
-
 import time
-
-# The tests rely solely on built‑in ``assert`` statements and do not
-# require the ``pytest`` framework.  If ``pytest`` is installed it
-# will discover and run these functions automatically.  Otherwise
-# executing this file directly will still exercise the tests.
-
 import os
 import sys
 
-# Ensure the parent directory of ``src`` is on the Python path so that
-# ``import src.storage`` works whether the tests are run via pytest or
-# directly via ``python tests/test_storage.py``.  Without this,
-# Python may not locate the ``src`` package when executing the file
-# directly.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.storage import (
@@ -44,10 +16,10 @@ from src.storage import (
 
 
 def build_ring(addresses: list[tuple[str, int]]) -> list[Node]:
-    """Create a ring from a list of (ip, port) tuples.
+    """Crea un anillo a partir de una lista de tuplas (ip, puerto).
 
-    The returned list is sorted by node ID and has the successor and
-    predecessor pointers set appropriately for each node.
+    La lista devuelta está ordenada por ID de nodo y tiene los punteros de sucesor y
+    predecesor configurados apropiadamente para cada nodo.
     """
     ring: list[Node] = []
     for ip, port in addresses:
@@ -57,11 +29,11 @@ def build_ring(addresses: list[tuple[str, int]]) -> list[Node]:
 
 
 def test_replication_and_lookup():
-    """Values are stored on the correct nodes and replicated.
+    """Los valores se almacenan en los nodos correctos y se replican.
 
-    This test constructs a ring of three nodes, stores a key and
-    verifies that the value is present on the primary node and one
-    successor (for a replication factor of 2).  It then checks that
+    Esta prueba construye un anillo de tres nodos, almacena una clave y
+    verifica que el valor esté presente en el nodo primario y en un
+    sucesor (para un factor de replicación de 2). Luego verifica que
     ``get_value`` retrieves the correct value, regardless of which
     node originally stored it.
     """
@@ -91,11 +63,11 @@ def test_replication_and_lookup():
 
 
 def test_flood_search_finds_value_within_ttl():
-    """Flooding search returns the value when TTL is sufficient.
+    """La búsqueda por inundación devuelve el valor cuando el TTL es suficiente.
 
-    The key is stored on one node and a flood search is initiated from
-    another node.  With TTL >= distance, the search should find the
-    value.  With TTL too low, it should return ``None``.
+    La clave se almacena en un nodo y se inicia una búsqueda por inundación desde
+    otro nodo. Con TTL >= distancia, la búsqueda debería encontrar el
+    valor. Con TTL demasiado bajo, debería devolver ``None``.
     """
     ring = build_ring([
         ("127.0.0.1", 5000),
@@ -117,12 +89,12 @@ def test_flood_search_finds_value_within_ttl():
 
 
 def test_heartbeat_detection():
-    """Nodes detect failed neighbours when heartbeats lapse.
+    """Los nodos detectan vecinos fallidos cuando los latidos expiran.
 
-    A node receives heartbeats from two neighbours at controlled
-    timestamps.  After advancing the clock beyond a timeout threshold
-    for one neighbour, ``check_failed_neighbours`` should return that
-    neighbour as failed while retaining the other.
+    Un nodo recibe latidos de dos vecinos en tiempos controlados.
+    Después de avanzar el reloj más allá de un umbral de tiempo de espera
+    para un vecino, ``check_failed_neighbours`` debería devolver ese
+    vecino como fallido mientras mantiene al otro.
     """
     a = Node("127.0.0.1", 5000)
     b = Node("127.0.0.1", 5001)
