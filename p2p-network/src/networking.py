@@ -2,92 +2,60 @@ import json
 import logging
 import socket
 import threading
-from typing import Any, Union
-
+from typing import Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+# Callback global y referencia al socket del servidor para permitir cierres limpios
+ON_MESSAGE_CALLBACK: Optional[Callable[[Dict, tuple], None]] = None
+SERVER_SOCKET: Optional[socket.socket] = None
 
-def manejar_cliente(conn: socket.socket, direccion) -> None:
-    """
-    Maneja una conexión con un cliente.
-
-    Lee líneas separadas por '\\n', intenta decodificar cada una como JSON y envía
-    un eco de la información recibida. Si el contenido no es JSON válido, envía un
-    mensaje de error. Cierra la conexión al finalizar.
-    """
+def manejar_cliente(conn: socket.socket, addr: tuple) -> None:
+    """Gestiona la recepción de datos de un cliente, decodifica el JSON y ejecuta el callback."""
     try:
         with conn:
-            archivo = conn.makefile("r")
-            for linea in archivo:
-                linea = linea.strip()
-                if not linea:
-                    continue
+            data = conn.recv(4096).decode("utf-8")
+            if not data:
+                return
+            try:
+                mensaje_dict = json.loads(data)
+                if ON_MESSAGE_CALLBACK:
+                    ON_MESSAGE_CALLBACK(mensaje_dict, addr)
+            except json.JSONDecodeError:
+                logger.error(f"Error de protocolo: JSON inválido desde {addr}")
+    except Exception as e:
+        logger.error(f"Error en la conexión con {addr}: {e}")
 
-                try:
-                    datos = json.loads(linea)
-                    respuesta = datos
-                except json.JSONDecodeError:
-                    respuesta = {"error": "JSON invalido"}
+def iniciar_servidor(host: str, puerto: int, callback: Callable) -> threading.Thread:
+    """Inicializa el servidor TCP y configura el callback para procesar mensajes entrantes."""
+    global ON_MESSAGE_CALLBACK, SERVER_SOCKET
+    ON_MESSAGE_CALLBACK = callback
 
-                try:
-                    mensaje = json.dumps(respuesta) + "\n"
-                except (TypeError, ValueError) as exc:
-                    logger.error("Error serializando respuesta para %s: %s", direccion, exc)
-                    mensaje = json.dumps({"error": "JSON invalido"}) + "\n"
-
-                conn.sendall(mensaje.encode("utf-8"))
-    finally:
+    SERVER_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    SERVER_SOCKET.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    SERVER_SOCKET.bind((host, puerto))
+    SERVER_SOCKET.listen(5)
+    
+    def run_server():
+        logger.info(f"Servicio de red iniciado en {host}:{puerto}")
         try:
-            conn.close()
+            while True:
+                # El bucle termina cuando SERVER_SOCKET.close() se llama desde fuera
+                conn, addr = SERVER_SOCKET.accept()
+                threading.Thread(target=manejar_cliente, args=(conn, addr), daemon=True).start()
         except OSError:
-            pass
+            logger.info("Servidor detenido correctamente.")
 
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    return server_thread
 
-def iniciar_servidor(host: str = "0.0.0.0", puerto: int = 5000) -> None:
-    """
-    Inicia un servidor TCP que acepta conexiones entrantes.
-
-    Por cada cliente aceptado crea un hilo daemon que llama a `manejar_cliente`.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as servidor:
-        servidor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        servidor.bind((host, puerto))
-        servidor.listen()
-        logger.info("Servidor escuchando en %s:%s", host, puerto)
-
-        while True:
-            conn, addr = servidor.accept()
-            logger.info("Conexión aceptada desde %s", addr)
-            hilo = threading.Thread(target=manejar_cliente, args=(conn, addr), daemon=True)
-            hilo.start()
-
-
-def enviar_mensaje(host: str, puerto: int, mensaje_json: Union[dict, list, str]) -> Any:
-    """
-    Envía un mensaje JSON a un host y puerto específicos.
-
-    Convierte diccionarios o listas a JSON, envía el contenido terminado en '\\n' y
-    espera una respuesta del servidor. La respuesta se decodifica como JSON si es
-    posible; de lo contrario, se devuelve la cadena recibida.
-    """
-    if isinstance(mensaje_json, (dict, list)):
-        mensaje = json.dumps(mensaje_json)
-    elif isinstance(mensaje_json, str):
-        mensaje = mensaje_json
-    else:
-        raise TypeError("mensaje_json debe ser dict, list o str")
-
-    with socket.create_connection((host, puerto)) as sock:
-        sock.sendall((mensaje + "\n").encode("utf-8"))
-        archivo = sock.makefile("r")
-        respuesta = archivo.readline()
-
-    respuesta = respuesta.strip()
-    if not respuesta:
-        return ""
-
+def enviar_mensaje(ip: str, puerto: int, mensaje_json: str) -> bool:
+    """Envía una cadena JSON a un destino remoto y confirma si la entrega fue exitosa."""
     try:
-        return json.loads(respuesta)
-    except json.JSONDecodeError:
-        return respuesta
+        with socket.create_connection((ip, puerto), timeout=3) as sock:
+            sock.sendall(mensaje_json.encode("utf-8"))
+            return True
+    except Exception as e:
+        logger.error(f"Fallo de envío a {ip}:{puerto}: {e}")
+        return False

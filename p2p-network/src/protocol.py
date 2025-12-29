@@ -8,30 +8,31 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 class MessageType(Enum):
+    """Define los tipos de mensajes permitidos en la red P2P."""
     JOIN = "JOIN"
-    UPDATE = "UPDATE"
+    UPDATE = "UPDATE"   
     PUT = "PUT"
     GET = "GET"
     RESULT = "RESULT"
     HEARTBEAT = "HEARTBEAT"
 
-
 @dataclass
 class Message:
+    """Estructura de datos para los mensajes del protocolo."""
     type: MessageType
     sender_id: str
     data: Dict[str, Any]
     timestamp: float = None
 
     def __post_init__(self):
+        # Asigna el tiempo actual si no se provee uno
         if self.timestamp is None:
             self.timestamp = time.time()
 
-
-
 def serialize_message(message: Message) -> str:
+    """Convierte una instancia de Message a una cadena JSON."""
     if not isinstance(message, Message):
-        raise TypeError("Expected Message instance")
+        raise TypeError("Se esperaba una instancia de Message")
 
     payload = {
         "type": message.type.value,
@@ -39,50 +40,43 @@ def serialize_message(message: Message) -> str:
         "data": message.data,
         "timestamp": message.timestamp
     }
-
     return json.dumps(payload)
 
 def deserialize_message(json_str: str) -> Message:
+    """Convierte una cadena JSON a una instancia de Message con validación."""
     try:
         payload = json.loads(json_str)
     except json.JSONDecodeError:
-        raise ValueError("Invalid JSON")
+        raise ValueError("Formato JSON inválido")
 
-    required_fields = {"type", "sender_id", "data", "timestamp"}
-    if not required_fields.issubset(payload):
-        raise ValueError("Missing required fields")
+    # Validación de campos estructurales obligatorios
+    required = {"type", "sender_id", "data", "timestamp"}
+    if not required.issubset(payload):
+        raise ValueError(f"Faltan campos obligatorios: {required - set(payload)}")
 
     try:
         msg_type = MessageType(payload["type"])
     except ValueError:
-        raise ValueError("Invalid message type")
+        raise ValueError(f"Tipo de mensaje desconocido: {payload['type']}")
 
-    if not isinstance(payload["sender_id"], str):
-        raise ValueError("sender_id must be string")
-
-    if not isinstance(payload["data"], dict):
-        raise ValueError("data must be dict")
-
-    if not isinstance(payload["timestamp"], (int, float)):
-        raise ValueError("timestamp must be numeric")
-    
+    # Validación de contenido específico según el tipo
     _validate_payload_content(msg_type, payload["data"])
 
     return Message(
         type=msg_type,
-        sender_id=payload["sender_id"],
+        sender_id=str(payload["sender_id"]),
         data=payload["data"],
         timestamp=payload["timestamp"]
     )
 
 def _validate_payload_content(msg_type: MessageType, data: Dict[str, Any]):
-    """Valida que 'data' tenga los campos necesarios según el tipo"""
+    """Verifica que el diccionario 'data' contenga la información necesaria para cada comando."""
     if msg_type == MessageType.JOIN:
         if "ip" not in data or "port" not in data:
-            raise ValueError("JOIN message missing 'ip' or 'port'")
+            raise ValueError("JOIN requiere 'ip' y 'port'")
     elif msg_type == MessageType.PUT:
         if "key" not in data or "value" not in data:
-            raise ValueError("PUT message missing 'key' or 'value'")
+            raise ValueError("PUT requiere 'key' y 'value'")
     elif msg_type == MessageType.GET:
         if "key" not in data:
-            raise ValueError("GET message missing 'key'")
+            raise ValueError("GET requiere 'key'")
